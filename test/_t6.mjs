@@ -1,7 +1,21 @@
 import { __internal } from '../index.js'
 import { EventEmitter } from 'node:events'
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const { createMounter, createHandler, loadState } = __internal
+
+// 这个用例会改档位与开关。跑完必须把 state.json 还原成原样，
+// 否则跑一次自检就把用户装好的那套闸门关掉了（踩过）。
+const ST = join(dirname(fileURLToPath(import.meta.url)), '..', 'state.json')
+const prevState = existsSync(ST) ? readFileSync(ST, 'utf8') : null
+function restore() {
+  if (prevState === null) { try { unlinkSync(ST) } catch { /* ignore */ } }
+  else writeFileSync(ST, prevState, 'utf8')
+}
+process.on('exit', restore)
+process.on('uncaughtException', (e) => { restore(); throw e })
 
 const reg = new Map()
 const ctx = {

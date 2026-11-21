@@ -5,7 +5,7 @@
 //   ARMOR_INSTALLED=<dir> node test/_t12.mjs  # 指定实装目录
 // 找不到实装包时跳过第 1 节，其余照跑。
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,6 +14,17 @@ const SRC = join(SCRIPT_DIR, '..')
 const DST =
   process.env.ARMOR_INSTALLED ||
   join(process.env.APPDATA || '', 'dsh-desktop', 'harness', 'profiles', 'web', 'node_modules', 'dsh-armor-supreme')
+
+// 第 2 节的断言跟档位有关（off 档 shouldChars 必然是 0）。
+// 把 state.json 固定成 full 跑，跑完还原 —— 否则「先跑过 _t6」就会让这里假红。
+const STATE = join(SRC, 'state.json')
+const prevState = existsSync(STATE) ? readFileSync(STATE, 'utf8') : null
+function restoreState() {
+  if (prevState === null) { try { unlinkSync(STATE) } catch { /* ignore */ } }
+  else writeFileSync(STATE, prevState, 'utf8')
+}
+process.on('exit', restoreState)
+writeFileSync(STATE, JSON.stringify({ enabled: true, tier: 'full', frame: 'auto' }), 'utf8')
 
 // 不参与比对：测试脚本、运行时产物、系统残留
 const SKIP_FILE = /^_t\d+\.mjs$|^boot\.log$|^state\.json$|^\.DS_Store$|^\.gitignore$/

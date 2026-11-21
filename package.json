@@ -4,6 +4,18 @@
   "private": false,
   "type": "module",
   "description": "Layered context assembly for DSH agents: ordered prompt sections, register lock, tail anchor, frame permutation, observable control plane",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nefelibatic/dsh-armor-supreme.git"
+  },
+  "homepage": "https://github.com/Nefelibatic/dsh-armor-supreme#readme",
+  "bugs": {
+    "url": "https://github.com/Nefelibatic/dsh-armor-supreme/issues"
+  },
+  "author": "Nefelibatic",
+  "engines": {
+    "node": ">=18"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
