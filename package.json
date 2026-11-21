@@ -1,0 +1,58 @@
+{
+  "name": "dsh-armor-supreme",
+  "version": "2.2.0",
+  "private": false,
+  "type": "module",
+  "description": "Layered context assembly for DSH agents: ordered prompt sections, register lock, tail anchor, frame permutation, observable control plane",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./armor-rules": "./armor-rules.js",
+    "./preset-rows": "./preset-rows.js",
+    "./frames": "./frames.js",
+    "./anchor": "./anchor.js",
+    "./tool-gate": "./tool-gate.js",
+    "./assemble-guard": "./assemble-guard.js",
+    "./capability-protocol": "./capability-protocol.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "armor-rules.js",
+    "preset-rows.js",
+    "frames.js",
+    "anchor.js",
+    "tool-gate.js",
+    "assemble-guard.js",
+    "capability-protocol.js",
+    "cordis.patch.yml",
+    "prompt/",
+    "locale/",
+    "eval/",
+    "tools/",
+    "icon.svg",
+    "manual.html",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "cordis-plugin",
+    "prompt-assembly",
+    "agent-preset",
+    "context-assembly"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  }
+}

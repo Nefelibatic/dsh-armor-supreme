@@ -1,0 +1,22 @@
+# 运行时产物，不进版本库
+state.json
+boot.log
+
+# 测试与本地临时
+test/node_modules/
+*.tmp
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 判分产物
+eval/report.md
+eval/*.json
+answers/
+
+# 依赖
+node_modules/
