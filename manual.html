@@ -482,7 +482,7 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 
 <h3>重启后日志还在刷 <code>patch: entry "dsh-armor-supreme" not found</code></h3>
 
-<p>那是旧记录。这个 warn 出现的前提是包内 <code>cordis.patch.yml</code> 写成了 <code>- id: dsh-armor-supreme</code>（修改一个还不存在的条目）。正确写法是 <code>- insert: [{ id, name, config }]</code>——bundles 只负责挂补丁层，条目本身要在这里显式 insert。重装一次即可，装完 <code>cordis.patch.yml</code> 里应该有 <code>- insert:</code>。</p>
+<p>那是旧记录。这个 warn 出现的前提是包内 <code>cordis.patch.yml</code> 写成了 <code>- id: dsh-armor-supreme</code>（修改一个还不存在的条目）。正确写法是 <code>- insert: [{ id: armor-supreme-entry, name: dsh-armor-supreme, config }]</code>——bundles 只负责挂补丁层，条目本身要在这里显式 insert，而且 <code>id</code> <b>不能等于包名</b>（理由见下面「提示词完全没生效」那条）。重装一次即可，装完 <code>cordis.patch.yml</code> 里应该有 <code>- insert:</code> 且 <code>id</code> 不是包名。</p>
 
 <h3><code>mountedCount</code> 是 0</h3>
 

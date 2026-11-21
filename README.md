@@ -241,6 +241,13 @@ python eval\grade.py --bank <题库.md> --answers .\answers --strict   # 严格�
 ## 6. 安装
 
 ```powershell
+git clone https://github.com/dxz5201314/dsh-armor-supreme.git
+cd dsh-armor-supreme
+```
+
+然后任选一种：
+
+```powershell
 # 双击
 tools\install.cmd
 
@@ -250,20 +257,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1 [-ProfileD
 
 `install.ps1` 做四件事：校验必需文件 → 清理旧残留（只删 `prompt/` 与 `boot.log`，**不覆盖 `state.json`**）→ 白名单复制到 `<profile>\node_modules\dsh-armor-supreme\`（不带 `test/`）→ 在 `<profile>\package.json` 登记 `dependency(link)` 与 `bundles`。
 
+装完**完全退出 DSH Desktop（含托盘）再启动**——`index.js` 是模块级代码，热重载不会把它换进进程（日志里会明说 `changed modules keep running their previous code until a restart`）。启动后新开会话，在预设选择器里选「破甲·至强」。
+
 **安装路径只有一个正解**：`dsh.profile.bundles`。往 `cordis.patch.yml` 里手写 insert 会被宿主判为 `profile inconsistency` 并在某些版本上 `already queued`。
 
 包内 `cordis.patch.yml` 必须是：
 
 ```yaml
 - insert:
-    - id: dsh-armor-supreme
+    - id: armor-supreme-entry     # 必须 ≠ 包名，见 6.5 坑一
       name: dsh-armor-supreme
       config:
         enabled: true
         tier: full
 ```
 
-写成 `- id: dsh-armor-supreme` + `config:` 时，条目还不存在，宿主会 `warn entry not found` 并跳过整段 —— 插件永远不进树。
+写成 `- id: dsh-armor-supreme`（不带 `insert`）是「修改一个已存在的条目」，而那条目要等 insert 之后才存在，宿主会 `warn entry not found` 并跳过整段 —— 插件永远不进树。
 
 ## 6.5 三个会静默毁事的坑
 
