@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>破甲·至强 v2.2 · 使用手册</title>
+<title>破甲·至强 v2.3 · 使用手册</title>
 <style>
   :root{
     --bg:#0e0e13; --panel:#16161c; --panel2:#1c1c24; --line:#2a2a34; --line2:#3a3a46;
@@ -89,7 +89,7 @@
 
 <nav>
   <div class="brand">破甲 · 至强</div>
-  <div class="ver">v2.2.0 · 50417 字符 / 八段</div>
+  <div class="ver">v2.3.0 · 50417 字符 / 八段</div>
   <div class="ver" style="margin-top:-14px">交流群 QQ 1137235952</div>
 
   <div class="grp">开始</div>
@@ -117,7 +117,7 @@
 
 <main>
 
-<h1>破甲 · 至强 <span class="tag">v2.2.0</span></h1>
+<h1>破甲 · 至强 <span class="tag">v2.3.0</span></h1>
 <p class="lede">262 题题库驱动的交付契约层。选中预设后，每一类请求都以完整可执行工件交付；未选中的会话零注入。</p>
 <p class="lede" style="font-size:12.5px">交流群 <b>QQ 1137235952</b> ｜ 项目主页 <a href="https://github.com/Nefelibatic/dsh-armor-supreme">Nefelibatic/dsh-armor-supreme</a></p>
 
@@ -144,10 +144,15 @@
 
 <ol class="steps">
   <li>
-    <b>装。</b>双击 <code>install.cmd</code>，或命令行：
-    <pre><code><span class="cmt"># 幂等，可反复跑</span>
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1</code></pre>
-    脚本做的事：校验 20 个必需文件 → 白名单复制到 <code>&lt;profile&gt;\node_modules\dsh-armor-supreme\</code> → 在 profile 的 <code>package.json</code> 里登记 <code>dependencies</code>（link 到源目录）+ <code>dsh.profile.bundles</code>。它<b>不</b>往 <code>cordis.patch.yml</code> 写手工 insert 块。
+    <b>装。</b>解压后双击根目录的 <code>install.cmd</code>。它会自己找 DSH、自己找 profile、自己登记、自己体检——不用你输入任何路径。
+    <pre><code><span class="cmt"># 装（幂等，可反复跑）</span>
+install.cmd
+<span class="cmt"># 只体检，不改任何文件</span>
+install.cmd -Diagnose
+<span class="cmt"># 卸（只摘登记、删安装副本，永不动源码目录）</span>
+uninstall.cmd</code></pre>
+    它做七件事：<b>①</b> 定位 DSH（环境变量 → 运行中的进程与端口 → <code>%APPDATA%</code>／<code>%LOCALAPPDATA%</code>／每个用户目录／<code>D:\dsh-home</code>／<code>~\.dsh</code>）；<b>②</b> 定位 profile（<code>profiles\*</code> 里含 <code>package.json</code> 的目录，按 Roaming 的 web &gt; Local 的 web &gt; 任意 web &gt; 其他 打分）；<b>③</b> 校验 24 个必需文件；<b>④</b> 白名单复制（目标是指回自身的 Junction 时整段跳过，不会删源码）；<b>⑤</b> 在 profile <code>package.json</code> 登记 <code>dependencies</code>(link) + <code>dsh.profile.bundles</code>，写前备份、写出仍保持 2 空格缩进；<b>⑥</b> 自愈三个静默杀手（patch entry id 撞包名、profile patch 里的陈旧 insert、缺失的 <code>state.json</code>）；<b>⑦</b> 验证并实时探测 <code>/armor/ui</code> 与 <code>status</code>。
+    <br>找不到东西时它会把查过的每条路径打出来，并给出可粘贴的 <code>-ProfileDir</code>／<code>-DshHome</code> 写法。显式传了这两个参数就是<b>权威</b>：找不到就报错停下，不会悄悄装到机器上另一个 profile 里去。
   </li>
   <li>
     <b>重启一次 DSH Desktop。</b>完全退出（连托盘图标），再启动。首次安装必须重启——宿主在启动期扫 <code>package.json</code> 的 <code>dsh.client</code> 字段来决定要不要把浏览器半侧注册进模块图，这步有缓存，改完必须重启才重扫。
@@ -472,13 +477,15 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 │   └── p6_arsenal.md     配方库 25.1–25.20
 ├── eval/grade.py         262 题判分器
 ├── eval/bank.jsonl       题库解析产物
-├── tools/install.ps1     幂等安装（ASCII only）
-├── tools/uninstall.ps1
+├── tools/install.ps1     自动定位 · 登记 · 自愈 · 体检（ASCII only）
+├── tools/uninstall.ps1   薄封装，逻辑复用 install.ps1 -Uninstall
+├── install.cmd           根目录一键入口（双击）
+├── uninstall.cmd
 ├── test/_t5.._t13.mjs    13 组自检（不装进 profile）
 ├── manual.html           本手册
 └── icon.svg</code></pre>
 
-<p><code>install.ps1</code> 用白名单复制，<b>不会</b>把 <code>_t*.mjs</code> 测试脚本或 <code>boot.log</code> 装进去，也<b>不会</b>覆盖已有的 <code>state.json</code>。</p>
+<p><code>install.ps1</code> 用白名单复制，<b>不会</b>把 <code>_t*.mjs</code> 测试脚本或 <code>boot.log</code> 装进去，也<b>不会</b>覆盖已有的 <code>state.json</code>。它还会自愈三样东西：包内 patch 的 entry id 若写成包名会改写、profile patch 里残留的陈旧 insert 块会摘掉、缺 <code>state.json</code> 会补一条默认值。</p>
 
 <h2 id="faq"><span class="n">13</span>常见问题</h2>
 
@@ -501,6 +508,21 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 <h3>日志里有 <code>profile inconsistency: dsh-armor-supreme is installed but declared nowhere in the profile manifest</code></h3>
 
 <p>说明 <code>package.json</code> 的 <code>dsh.profile.bundles</code> 里没有这个包名。重跑 <code>install.ps1</code> 就会写上。手工改过 profile 的话记得把 <code>dsh-armor-supreme</code> 加进 bundles 数组。</p>
+
+<h3>装的时候报 <code>profile dir not found</code>（旧版脚本）／现在报「找不到 profile」</h3>
+
+<p>旧版 <code>install.ps1</code> 把 profile 路径写死成 <code>%APPDATA%\dsh-desktop\harness\profiles\web</code>，一旦对方的机器上 profile 不叫 <code>web</code>、或 DSH 装在 <code>%LOCALAPPDATA%</code>／别的用户目录／<code>D:\dsh-home</code>，就会直接停下。现在不会了：安装器会自己走一遍候选路径，并给找到的每个 profile 打分。</p>
+
+<p>如果还是找不到，跑 <code>install.cmd -Diagnose</code>，它会把查过的每条路径打出来。然后把结果按下面任何一种方式指过去即可：</p>
+
+<pre><code>install.cmd -ProfileDir "C:\Users\你\AppData\Roaming\dsh-desktop\harness\profiles\web"
+install.cmd -DshHome   "C:\Users\你\AppData\Roaming\dsh-desktop\harness"</code></pre>
+
+<p>还有一条最常见的原因：<b>DSH Desktop 从没启动过</b>，profile 还没被创建。先启动一次，再装。</p>
+
+<h3>怎么一键确认装得对不对</h3>
+
+<p><code>install.cmd -Diagnose</code> 只读不写，会打印：profile 路径与选择理由、目标目录是真实目录还是 Junction、<code>dependencies</code>／<code>bundles</code> 是否在位、安装副本文件数、patch entry id、以及 <code>/armor/ui</code> 与 <code>status</code> 的实时返回。最后一行 <code>DIAGNOSE: no problems found.</code> 就是全绿；有 <code>PROBLEM:</code> 行就照着它说的改。</p>
 
 <h3>能不能和 dsh-purge 一起开</h3>
 
@@ -560,7 +582,7 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 </div>
 
 <div class="foot">
-  破甲 · 至强 v2.2.0 · 六段正文 49694 + 两道加固 723 = 50417 字符 · 四层管线 · 23 域 × 8 帧 · 本手册随插件一起安装，双击即可打开
+  破甲 · 至强 v2.3.0 · 六段正文 49694 + 两道加固 723 = 50417 字符 · 四层管线 · 23 域 × 8 帧 · 本手册随插件一起安装，双击即可打开
 </div>
 
 </main>

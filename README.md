@@ -11,7 +11,7 @@
 
 <br />
 
-[![version](https://img.shields.io/badge/version-2.2.0-f97316?style=flat-square)](https://github.com/Nefelibatic/dsh-armor-supreme/releases)
+[![version](https://img.shields.io/badge/version-2.3.0-f97316?style=flat-square)](https://github.com/Nefelibatic/dsh-armor-supreme/releases)
 [![license](https://img.shields.io/badge/license-MIT-38bdf8?style=flat-square)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A518-5eead4?style=flat-square)](https://nodejs.org)
 [![dsh](https://img.shields.io/badge/DSH-0.2.1--rc.2-a78bfa?style=flat-square)](https://github.com/deepseek-ai)
@@ -378,24 +378,45 @@ python eval\grade.py --bank <题库.md> --answers .\answers --strict   # 严格�
 
 ## 安装
 
+### 最省事：下载 zip，双击 `install.cmd`
+
+去仓库 `Code → Download ZIP`（或 Releases），**解压**，双击根目录的 `install.cmd`。
+
+它自己找 DSH、自己找 profile、自己登记、自己检查，全程不需要你输入任何路径。找不到东西时它会告诉你它查过哪些位置，并给出可粘贴的 `-ProfileDir` 写法。
+
+```powershell
+install.cmd                 # 装（或重装，幂等）
+install.cmd -Diagnose       # 只体检，不改任何文件，出问题先跑这个
+uninstall.cmd               # 卸（只摘登记、删安装副本，永不动你的源码目录）
+```
+
+### 或者：先 clone 再装
+
 ```powershell
 git clone https://github.com/Nefelibatic/dsh-armor-supreme.git
 cd dsh-armor-supreme
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1
 ```
 
-然后任选一种：
+### 安装器干了什么
 
-```powershell
-# 双击
-tools\install.cmd
+| 步骤 | 动作 | 失败时 |
+|---|---|---|
+| 1 | 定位 DSH：`DSH_PROFILE_DIR` / `DSH_HOME` → 运行中的进程与端口 → `%APPDATA%`、`%LOCALAPPDATA%`、每个 Windows 用户目录、`D:\dsh-home`、`~\.dsh` 等候选 | 打印它查过的每一条路径，让你贴 `-ProfileDir` |
+| 2 | 定位 profile：`<harness>\profiles\*` 里含 `package.json` 的目录，按「Roaming 的 web > Local 的 web > 任意 web > 其他」打分选最合适的一个 | 列出找到的所有 profile 与最终选择 |
+| 3 | 校验源包 24 个必需文件 | 直接停，提示重新解压 |
+| 4 | 同步文件（白名单，不带 `test/`；**目标是指回自身的 Junction 时整段跳过**） | 单文件重试 10 次，仍失败则提示先退出 DSH |
+| 5 | 在 profile `package.json` 里登记 `dependency: link:<源码绝对路径>` 与 `dsh.profile.bundles`，写前自动 `*.bak-armor-<时间戳>` 备份，写出仍用 2 空格缩进原顺序 | 写完立刻回读校验 |
+| 6 | 自愈三个已知静默杀手：patch entry id 撞包名、profile patch 里的陈旧 insert 块、缺失的 `state.json` | 每条都打印它改了什么 |
+| 7 | 验证：登记项、文件数、提示词字符数（49694）、entry id、`GET /armor/ui` 实时探测、`POST /armor/api {op:status}` | 有 DSH 在跑就顺带告诉你进程里是新代码还是旧代码 |
 
-# 或
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1 [-ProfileDir <dir>]
-```
+退出码：`0` 全部通过；`1` 有问题（逐条列出）。给朋友装的时候，让他把 `install.cmd -Diagnose` 的输出整段发过来就行。
 
-`install.ps1` 做四件事：校验必需文件 → 清理旧残留（只删 `prompt/` 与 `boot.log`，**不覆盖 `state.json`**）→ 白名单复制到 `<profile>\node_modules\dsh-armor-supreme\`（不带 `test/`）→ 在 `<profile>\package.json` 登记 `dependency(link)` 与 `bundles`。
+显式传了 `-ProfileDir` 或 `-DshHome` 时，安装器把它们当**权威**：找不到就报错停下，绝不会悄悄装到机器上另一个 profile 里去。
 
 > **装完必须完全退出 DSH Desktop（含托盘）再启动。** `index.js` 是模块级代码，热重载不会把它换进进程（日志里会明说 `changed modules keep running their previous code until a restart`）。启动后新开会话，在预设选择器里选「破甲·至强」。
+>
+> 只改提示词文本（`prompt/*.md`）不用重启，控制端点「重新载入」即生效。
 
 **安装路径只有一个正解**：`dsh.profile.bundles`。往 `cordis.patch.yml` 里手写 insert 会被宿主判为 `profile inconsistency` 并在某些版本上 `already queued`。
 
@@ -443,6 +464,8 @@ bundles 会先用包名生成一个 entry，再 `- insert: {id: <包名>}` 撞�
 
 ```
 dsh-armor-supreme/
+├── install.cmd            一键安装（双击即可，自动定位 DSH 与 profile）
+├── uninstall.cmd          一键卸载
 ├── package.json           dsh.bundle.patch + dsh.client(web)
 ├── index.js               装配层 · 预设声明 · 五条钩子 · HTTP 桥 · 控制页
 ├── client.js              浏览器半侧：浮动 dock + 侧栏按钮（IIFE）
@@ -467,7 +490,11 @@ dsh-armor-supreme/
 │   ├── grade.py           判分器
 │   └── bank.jsonl         题库解析产物（262 条）
 ├── test/                  9 个端到端用例（不进安装包）
-└── tools/                 install.ps1 / uninstall.ps1
+└── tools/
+    ├── install.ps1        自动定位 · 登记 · 自愈 · 体检（-Diagnose）
+    ├── install.cmd        根目录同名脚本的转发
+    ├── uninstall.ps1      薄封装，逻辑复用 install.ps1 -Uninstall
+    └── uninstall.cmd
 ```
 
 ---
