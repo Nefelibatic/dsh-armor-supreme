@@ -89,7 +89,7 @@
 
 <nav>
   <div class="brand">破甲 · 至强</div>
-  <div class="ver">v2.3.0 · 50417 字符 / 八段</div>
+  <div class="ver">v2.4.0 · 50417 字符 / 八段</div>
   <div class="ver" style="margin-top:-14px">交流群 QQ 1137235952</div>
 
   <div class="grp">开始</div>
@@ -117,7 +117,7 @@
 
 <main>
 
-<h1>破甲 · 至强 <span class="tag">v2.3.0</span></h1>
+<h1>破甲 · 至强 <span class="tag">v2.4.0</span></h1>
 <p class="lede">262 题题库驱动的交付契约层。选中预设后，每一类请求都以完整可执行工件交付；未选中的会话零注入。</p>
 <p class="lede" style="font-size:12.5px">交流群 <b>QQ 1137235952</b> ｜ 项目主页 <a href="https://github.com/Nefelibatic/dsh-armor-supreme">Nefelibatic/dsh-armor-supreme</a></p>
 
@@ -126,7 +126,7 @@
 <p>一个 DSH 插件，由三部分组成：</p>
 
 <ul>
-  <li><b>六段系统提示词</b>（49694 字符，order 10300–10430）——身份注册表、反拒绝引擎、四层完成契约、22 域最小工件集、配方库 25.1–25.20、输出纪律自查。</li>
+  <li><b>六段系统提示词</b>（49694 字符，order 10300–10430；另有 capabilities/anchor 两段在 10450/10500）——身份注册表、反拒绝引擎、四层完成契约、22 域最小工件集、配方库 25.1–25.20、输出纪律自查。</li>
     <li><b>两道内联段</b>（723 字符，order 10450 / 10500）——能力选用协议、尾部锚点。这两段由加固层生成，不落在 <code>prompt/</code> 目录里。</li>
   <li><b>四道加固层</b>——尾部锚点（把格式要求放回模型最后读到的位置）、子代理锚点、装配改写（删掉宿主写的三句误导事实）、工具闸门（把审核拒绝压回放行，只降级不接管）。见 <a href="#armor-layers">06 四道加固层</a>。</li>
   <li><b>帧轮换引擎</b>——只改用户侧消息、不动系统提示词。单帧系统提示词的天花板是 35–37%，把同一个请求换 8 种「外观」轮换重问能到 91%。</li>
@@ -378,7 +378,7 @@ uninstall.cmd</code></pre>
   <li>预设实例（<code>via === 'preset'</code>）才注入六段提示词 + 装 pre-step 重锚与帧轮换。</li>
 </ul>
 
-<p><code>preset-rows.js</code> 逐行对齐宿主 <code>@deepseek-ai/dsh-web-app/presets/standard.patch.yml</code>。宿主升级导致预设行变化时要同步这个文件，否则 <code>registry.diagnostic()</code> 会返回 broken，选择器里那张卡会被过滤掉——控制端的 <code>preset.ok</code> 会显示 <code>false</code> 并给出原因。</p>
+<p>行列表<b>不是写死的一份</b>：注册前优先深拷贝宿主当前版本的 <code>standard</code> 活体行（<code>registry.definitions.get('standard').config.plugins</code>），拿到就与宿主同版本、不会因为升版而漂；拿不到才退回 <code>preset-rows.js</code> 里的内置静态行（21 行）。注册后读 <code>registry.diagnostic()</code>，把仍报硬失败的行按 id 剪掉再注册，最多 5 轮。所以宿主升级<b>不再需要</b>你同步这个文件。</p>
 
 <h2 id="confirm"><span class="n">10</span>怎么确认它在跑</h2>
 
@@ -465,7 +465,7 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 ├── assemble-guard.js     装配改写：删 3 个误导 context · 填 cwd · 锚点贴尾
 ├── tool-gate.js          工具闸门：只降级不接管 + 叶子禁再派活
 ├── capability-protocol.js 能力选用协议（主干 6 条 + 调度层 5 条）
-├── preset-rows.js        破甲预设的 21 行（对齐宿主 standard）
+├── preset-rows.js        预设行装配：宿主活体克隆 → 覆盖 → 诊断剪枝（静态 21 行兜底）
 ├── cordis.patch.yml      insert 声明（entry id 必须 ≠ 包名）
 ├── state.json            { enabled, tier, frame }
 ├── prompt/
@@ -492,6 +492,20 @@ python eval\grade.py --bank "…" --id E-G1 --inline answer.txt</code></pre>
 <h3>重启后日志还在刷 <code>patch: entry "dsh-armor-supreme" not found</code></h3>
 
 <p>那是旧记录。这个 warn 出现的前提是包内 <code>cordis.patch.yml</code> 写成了 <code>- id: dsh-armor-supreme</code>（修改一个还不存在的条目）。正确写法是 <code>- insert: [{ id: armor-supreme-entry, name: dsh-armor-supreme, config }]</code>——bundles 只负责挂补丁层，条目本身要在这里显式 insert，而且 <code>id</code> <b>不能等于包名</b>（理由见下面「提示词完全没生效」那条）。重装一次即可，装完 <code>cordis.patch.yml</code> 里应该有 <code>- insert:</code> 且 <code>id</code> 不是包名。</p>
+
+<h3>装了但预设选择器里没有「破甲·至强」这张卡</h3>
+
+<p>九成是<b>预设行与宿主版本不匹配</b>：某一行指向的子路径在当前 dsh 里已经不存在（真实案例：<code>@deepseek-ai/dsh-tool-subagent-control/list-agents</code> 在 0.2.1-rc.2 是独立子路径，0.2.2-rc.5 合并进主入口并从 <code>exports</code> 删掉）。那一行 <code>import</code> 失败 → <code>entry.fiber === undefined</code> → 诊断判 <code>never started</code> → 整棵预设树作废；<code>register()</code> 自己 catch，所以日志里没有异常，只有一行 <code>agent preset armor-supreme: &lt;某行&gt;: never started</code>，卡片被 UI 静默过滤。</p>
+
+<p>2.4.0 起自动处理，不用你动手：优先<b>深拷贝宿主当前版本的 <code>standard</code> 预设活体行</b>（<code>registry.definitions.get('standard').config.plugins</code>），与宿主同源所以天然不漂；万一还有坏行，读诊断文本按 id 剪掉、重注册，最多 5 轮。剪不动（多半是本插件自己的行起不来）才如实报错。</p>
+
+<p>控制台会把这些讲清楚：</p>
+
+<pre><code>预设已登记，但本会话未选中
+新开会话时在预设选择器里选「破甲·至强」才会注入。
+预设 id: armor-supreme · 宿主活体行 · 剪枝 1 轮 · 已剪掉 tool-subagent-list-agents</code></pre>
+
+<p>看到 <code>宿主活体行</code> = 与当前 dsh 同版本；看到 <code>内置静态行</code> = 宿主 <code>standard</code> 预设还没注册出来（常驻实例起得早，2.5 秒后会自动换一次）；<code>已剪掉</code> 后面列出的行提供的工具，在这个预设里就没有了——这是有损的，所以它不静默。仍然失败就把那行错误发到 QQ 群。</p>
 
 <h3><code>mountedCount</code> 是 0</h3>
 
@@ -582,7 +596,7 @@ install.cmd -DshHome   "C:\Users\你\AppData\Roaming\dsh-desktop\harness"</code>
 </div>
 
 <div class="foot">
-  破甲 · 至强 v2.3.0 · 六段正文 49694 + 两道加固 723 = 50417 字符 · 四层管线 · 23 域 × 8 帧 · 本手册随插件一起安装，双击即可打开
+  破甲 · 至强 v2.4.0 · 六段正文 49694 + 两道加固 723 = 50417 字符 · 四层管线 · 23 域 × 8 帧 · 本手册随插件一起安装，双击即可打开
 </div>
 
 </main>

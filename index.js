@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { armorScore, armorTextOf } from './armor-rules.js'
-import { ROWS } from './preset-rows.js'
+import { ROWS, buildRows, pruneRows, brokenRowsOf, hostStandardRows, ARMOR_ROW_ID } from './preset-rows.js'
 import { selectFrame, classify, FRAME_NAMES, DOMAIN_KEYS } from './frames.js'
 import { registerAnchor, ANCHOR_TEXT, CHILD_ANCHOR_TEXT, ANCHOR_ORDER } from './anchor.js'
 import { installToolGate } from './tool-gate.js'
@@ -94,7 +94,18 @@ const LIVE = {
   mounted: new Map(),
   /** @type {string[]} 最近一次 mount 的错误 */
   errors: [],
-  preset: { attempts: 0, ok: false, error: null, active: false },
+  preset: {
+    attempts: 0,
+    ok: false,
+    error: null,
+    active: false,
+    /* 行列表从哪来：host:standard（宿主活体克隆）/ static（内置兜底） */
+    source: 'none',
+    /* 诊断剪枝摘掉的行 id：宿主版本换了包名/删了子路径时，这里会冒出来 */
+    dropped: [],
+    /* 剪枝轮次，0 = 一次就过 */
+    rounds: 0,
+  },
   /** 帧轮换引擎最后一次状态（控制页读） */
   frame: null,
   /** 装配后处理实测计数 */
@@ -239,17 +250,40 @@ function statusOf(state, extra) {
 
 // ───────────────────── 预设声明 ─────────────────────
 
+/* 剪枝轮次上限：宿主一次换版顶多让几条行失效，5 轮足够且能防止死循环 */
+const PRESET_MAX_ROUNDS = 5
+
 function declarePreset(ctx) {
   let release = null
   let pending = null
   let disposed = false
   let retry = null
+  let upgraded = false
+
+  async function registerOnce(registry, rows) {
+    const releaseThis = await registry.register({ ...ARMOR_PRESET, plugins: rows })
+    let broken = null
+    try {
+      const record = registry.definitions && registry.definitions.get(ARMOR_PRESET.id)
+      if (record) broken = await registry.diagnostic(record)
+    } catch {
+      /* diagnostic 不可用不阻塞 */
+    }
+    return { releaseThis, broken: broken ? String(broken) : null }
+  }
+
+  function mark(ok, error, source, dropped, rounds) {
+    LIVE.preset.ok = ok
+    LIVE.preset.error = error
+    if (source !== undefined) LIVE.preset.source = source
+    if (dropped !== undefined) LIVE.preset.dropped = dropped.slice()
+    if (rounds !== undefined) LIVE.preset.rounds = rounds
+  }
 
   async function declare() {
     if (disposed || release !== null) return true
     if (pending !== null) return pending
     pending = (async () => {
-      LIVE.preset.attempts += 1
       let registry
       try {
         registry = ctx.get('agentPresets')
@@ -260,41 +294,91 @@ function declarePreset(ctx) {
         LIVE.preset.error = 'agentPresets 服务不可用'
         return false
       }
-      try {
-        release = await registry.register({ ...ARMOR_PRESET, plugins: ROWS })
-        let broken = null
+
+      // 1) 拿行：宿主活体克隆优先，静态兜底
+      const chosen = buildRows(registry)
+      let rows = chosen.rows
+      const dropped = []
+      let lastError = null
+
+      // 2) 注册 → 诊断 → 剪掉硬失败的行 → 重注册（宿主换版时自动收敛）
+      for (let round = 0; round < PRESET_MAX_ROUNDS; round++) {
+        LIVE.preset.attempts += 1
+        let attempt
         try {
-          const record = registry.definitions && registry.definitions.get(ARMOR_PRESET.id)
-          if (record) broken = await registry.diagnostic(record)
-        } catch {
-          /* diagnostic 不可用不阻塞 */
+          attempt = await registerOnce(registry, rows)
+        } catch (error) {
+          const message = String((error && error.message) || error)
+          if (/already|duplicate|exists|conflict/i.test(message)) {
+            release = () => {}
+            mark(true, null, chosen.source, dropped, round)
+            return true
+          }
+          mark(false, message, chosen.source, dropped, round)
+          return false
         }
-        if (broken) {
-          LIVE.preset.ok = false
-          LIVE.preset.error = String(broken)
-        } else {
-          LIVE.preset.ok = true
-          LIVE.preset.error = null
-        }
-        return true
-      } catch (error) {
-        const message = String((error && error.message) || error)
-        if (/already|duplicate|exists|conflict/i.test(message)) {
-          release = () => {}
-          LIVE.preset.ok = true
-          LIVE.preset.error = null
+
+        if (attempt.broken === null) {
+          release = attempt.releaseThis
+          mark(true, null, chosen.source, dropped, round)
+          upgradeLater(registry, chosen.source)
           return true
         }
-        LIVE.preset.ok = false
-        LIVE.preset.error = message
-        return false
+
+        lastError = attempt.broken
+        const bad = brokenRowsOf(attempt.broken)
+        const ids = new Set(bad.map((b) => b.id).filter((id) => id && id !== ARMOR_ROW_ID))
+        if (ids.size === 0) {
+          // 剪不动：可能是我们自己的行起不来，或诊断格式认不出。保留注册，如实报错。
+          release = attempt.releaseThis
+          mark(false, lastError, chosen.source, dropped, round)
+          return false
+        }
+
+        // 释放这一轮的挂载，剪枝后重来
+        try {
+          await attempt.releaseThis()
+        } catch {
+          /* 已经塌了 */
+        }
+        rows = pruneRows(rows, ids, dropped)
+        if (rows.length === 0) {
+          mark(false, lastError, chosen.source, dropped, round)
+          return false
+        }
       }
+
+      mark(false, lastError, chosen.source, dropped, PRESET_MAX_ROUNDS)
+      return false
     })()
     try {
       return await pending
     } finally {
       pending = null
     }
+  }
+
+  /**
+   * 静态兜底成功、但宿主的 standard 预设稍后才注册出来时，换一次宿主活体行。
+   * 只换一次：`upgraded` 挡着，重注册窗口本来就短。
+   */
+  function upgradeLater(registry, source) {
+    if (source !== 'static' || upgraded) return
+    upgraded = true
+    const timer = setTimeout(() => {
+      try {
+        if (disposed || release === null) return
+        if (!hostStandardRows(registry)) return
+        const old = release
+        release = null
+        Promise.resolve(old ? old() : undefined)
+          .then(() => declare())
+          .catch(() => {})
+      } catch {
+        /* 升级失败就留着静态行，不影响可用性 */
+      }
+    }, 2500)
+    if (timer && typeof timer.unref === 'function') timer.unref()
   }
 
   function kick() {
@@ -915,7 +999,7 @@ code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-siz
 .warnbox{border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.06)}
 </style></head><body><div class="wrap">
 <h1>破甲 · 至强</h1>
-<div class="sub">dsh-armor-supreme v2.1 · 预设驱动 · 6 段 order 10300–10430</div>
+<div class="sub">dsh-armor-supreme v2.4 · 预设驱动 · 八段 order 10300–10500</div>
 
 <div class="card" id="pcard">
   <div class="row"><div class="dot" id="pdot"></div><div class="big" id="pline">预设状态读取中…</div></div>
@@ -982,17 +1066,21 @@ function $(id) { return document.getElementById(id); }
 function paint() {
   if (!st) return;
   var p = st.preset || {};
+  // 行来源：host:standard 表示用的是宿主当前版本的活体行，static 表示它还没注册出来
+  var src = p.source === 'host:standard' ? '宿主活体行' : (p.source === 'static' ? '内置静态行' : '—');
+  var dropped = Array.isArray(p.dropped) && p.dropped.length ? (' · 已剪掉 ' + p.dropped.join(', ')) : '';
+  var rounds = (typeof p.rounds === 'number' && p.rounds > 0) ? (' · 剪枝 ' + p.rounds + ' 轮') : '';
   // 预设卡
   $('pdot').className = 'dot' + (p.active ? ' on' : (p.ok ? ' warn' : ''));
   if (p.active) {
     $('pline').textContent = '预设已激活 · 本会话生效中';
-    $('phint').textContent = '预设 id: ' + p.id + ' · 活实例 ' + st.liveInstances + '（预设 ' + st.presetInstances + '）';
+    $('phint').textContent = '预设 id: ' + p.id + ' · 活实例 ' + st.liveInstances + '（预设 ' + st.presetInstances + '）· ' + src + dropped;
   } else if (p.ok) {
     $('pline').textContent = '预设已登记，但本会话未选中';
-    $('phint').textContent = '新开会话时在预设选择器里选「破甲·至强」才会注入。预设 id: ' + p.id;
+    $('phint').textContent = '新开会话时在预设选择器里选「破甲·至强」才会注入。预设 id: ' + p.id + ' · ' + src + rounds + dropped;
   } else {
     $('pline').textContent = '预设登记失败：' + (p.error || '未知');
-    $('phint').textContent = '插件在本进程里没有预设实例，提示词不会被注入。';
+    $('phint').textContent = '行来源 ' + src + rounds + dropped + '。把这条错误发到 QQ 群即可定位。';
   }
   // 挂载态
   var on = st.mountedCount > 0;

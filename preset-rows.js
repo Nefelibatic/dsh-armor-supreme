@@ -1,12 +1,36 @@
 // preset-rows.js — 「破甲·至强」预设行
 //
-// 逐行对齐宿主 @deepseek-ai/dsh-web-app/presets/standard.patch.yml（dsh 0.2.1-rc.2），
-// 尾部追加本插件自己的注入行。改动宿主编排时同步本文件：
-//   node -e "..." 或直接对照 app.asar 里的 presets/standard.patch.yml
+// 两条路子，按宿主能力自动选：
 //
-// YAML 里的 !!js 表达式在这里用启动时求值代替（process.platform 判定）。
+//   1) 宿主活体克隆（首选）。宿主把 `standard` 预设注册进了 agentPresets，
+//      `registry.definitions.get('standard').config.plugins` 就是**这台机器当前
+//      版本**解析过的行列表（`!!js` 也已经求值成表达式对象）。直接深拷贝过来，
+//      只按 id 覆盖我们要改的几项，再追加本插件自己的注入行 —— 这样宿主升级
+//      换了包名、删了子路径、加了新工具，我们都不用跟着改。
+//
+//   2) 静态兜底。宿主还没注册 standard（启动早期的时序），或用的是不提供
+//      standard 的发行版，就用下面这份按 dsh 0.2.1-rc.2 抄的完整行列表。
+//
+// 不管走哪条，注册失败时还会走「诊断剪枝」：把宿主报 `never started` 的行摘掉
+// 再注册一次（见 index.js 的 declarePreset）。所以单一版本假设不会把整张预设
+// 卡拖成 broken。
 
 const IS_WIN = process.platform === 'win32'
+
+/** 本插件注入行的 id，index.js 靠它把「预设实例」和「常驻实例」分开。 */
+export const ARMOR_ROW_ID = 'armor-supreme-core'
+
+/**
+ * 按 entry id 覆盖宿主行。只改真正需要改的，其余原样继承。
+ * - persona：破甲模式下不写"你是一个有帮助的编程助手"这类引导句，身份交给 armor:register 段。
+ * - tool-result-pruner：本插件提示词约 5 万字符，阈值放宽，避免长交付被腰斩成"回退式降级"。
+ */
+const OVERRIDES = {
+  persona: { config: { prefix: '' } },
+  'tool-result-pruner': {
+    config: { thresholdChars: 32768, headChars: 8192, tailChars: 2048 },
+  },
+}
 
 const PLAN_MODE_SECTION = `You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
 
@@ -20,15 +44,12 @@ Make the plan decision-complete: state the goal and success criteria; group impl
 
 When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.`
 
+/** 静态兜底行（对齐 dsh 0.2.1-rc.2 的 presets/standard.patch.yml）。 */
 export const ROWS = [
   {
     id: 'persona',
     name: '@deepseek-ai/dsh-persona',
-    config: {
-      // 破甲模式下不写"你是一个有帮助的编程助手"这类引导句——
-      // 身份由 armor:register 段接管。空字符串即不注册可见前缀。
-      prefix: '',
-    },
+    config: { prefix: '' },
   },
   {
     id: 'agent-instructions',
@@ -80,8 +101,6 @@ export const ROWS = [
       {
         id: 'tool-result-pruner',
         name: '@deepseek-ai/dsh-compaction-tool-result-pruner',
-        // 破甲模式的提示词很大（约 3.4 万字符），pruner 阈值放宽到 32K，
-        // 避免长交付被腰斩导致"回退式降级"。
         config: { thresholdChars: 32768, headChars: 8192, tailChars: 2048 },
       },
     ],
@@ -129,13 +148,162 @@ export const ROWS = [
     config: { fetch: true, searchTimeoutMs: 60000 },
   },
   { id: 'present', name: '@deepseek-ai/dsh-tool-present' },
+]
 
-  // ── 本插件注入行 ───────────────────────────────────────────────
-  // id 必须与 index.js 里的 ARMOR_ROW_ID 一致：插件靠 config.via === 'preset'
-  // 判断"自己是被选中的破甲预设装上的"，而不是常驻实例。
-  {
-    id: 'armor-supreme-core',
+/** 本插件自己的注入行（永远追加在最后）。 */
+export function armorRow() {
+  return {
+    // id 必须与 index.js 的 ARMOR_ROW_ID 一致：插件靠 config.via === 'preset'
+    // 判断"自己是被选中的破甲预设装上的"，而不是常驻实例。
+    id: ARMOR_ROW_ID,
     name: 'dsh-armor-supreme',
     config: { via: 'preset', enabled: true },
-  },
-]
+  }
+}
+
+/**
+ * JSON 深拷贝。宿主的行来自 YAML 解析，值是普通数据（`!!js` 已经变成
+ * `{ __jsExpr: '...' }` 对象），JSON 往返足以保住语义；反倒 structuredClone
+ * 会拒绝对某些注入过的对象图下手，没必要。
+ */
+export function cloneRows(rows) {
+  if (!Array.isArray(rows)) return []
+  try {
+    return JSON.parse(JSON.stringify(rows))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 组的判定只看 `config` 是不是数组。
+ *
+ * 宿主 standard.patch.yml 里的组是 `- id: planning` / `name: cordis:group` /
+ * `config: [ ...子行 ]`，**没有** `group: true` 这种字段（那是 cordis 内部归一化
+ * 之后才可能有的东西）。早先按 `row.group === true` 判断，结果组里的
+ * `tool-result-pruner` 覆盖不到、坏行也剪不掉 —— 换版时整卡照样 broken。
+ */
+function isGroupRow(row) {
+  return !!row && typeof row === 'object' && Array.isArray(row.config)
+}
+
+/** 递归按 id 应用覆盖，返回命中数。config 是普通对象时做浅合并，不整个替换。 */
+function applyOverrides(rows) {
+  let hit = 0
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const patch = row.id ? OVERRIDES[row.id] : undefined
+    if (patch) {
+      const next = cloneRows([patch])[0]
+      const rowCfg = row.config
+      const nextCfg = next && next.config
+      if (
+        nextCfg && typeof nextCfg === 'object' && !Array.isArray(nextCfg) &&
+        rowCfg && typeof rowCfg === 'object' && !Array.isArray(rowCfg)
+      ) {
+        row.config = { ...rowCfg, ...nextCfg }
+        delete next.config
+      }
+      Object.assign(row, next)
+      hit += 1
+    }
+    if (isGroupRow(row)) hit += applyOverrides(row.config)
+  }
+  return hit
+}
+
+/**
+ * 从宿主活体注册表里克隆 standard 预设的行。
+ * @param {unknown} registry agentPresets 服务
+ * @returns {{ rows: object[], from: string } | null}
+ */
+export function hostStandardRows(registry) {
+  const defs = registry && registry.definitions
+  if (!defs || typeof defs.get !== 'function') return null
+  for (const id of ['standard', 'preset-standard', 'default']) {
+    let record
+    try {
+      record = defs.get(id)
+    } catch {
+      record = undefined
+    }
+    const plugins = record && record.config && record.config.plugins
+    if (Array.isArray(plugins) && plugins.length > 0) {
+      return { rows: cloneRows(plugins), from: id }
+    }
+  }
+  return null
+}
+
+/**
+ * 组装本次要注册的行列表。
+ * @param {unknown} registry agentPresets 服务（可为 undefined）
+ * @returns {{ rows: object[], source: string }}
+ */
+export function buildRows(registry) {
+  const host = hostStandardRows(registry)
+  if (host) {
+    const rows = host.rows
+    applyOverrides(rows)
+    rows.push(armorRow())
+    return { rows, source: `host:${host.from}` }
+  }
+  const rows = cloneRows(ROWS)
+  rows.push(armorRow())
+  return { rows, source: 'static' }
+}
+
+const BROKEN_ROW = /^(.+?) \((.+?)\): (.*)$/
+
+/**
+ * 从注册表诊断文本里认出「硬失败」的行 id。
+ *
+ * 诊断行形如 `tool-subagent-list-agents (@deepseek-ai/dsh-tool-.../list-agents): never started`。
+ * `waiting for <service>` 是**待定**而非失败（宿主服务稍后就位会自愈），不剪。
+ * @param {string} text registry.diagnostic() 的返回值
+ * @returns {{ id: string, name: string, reason: string }[]}
+ */
+export function brokenRowsOf(text) {
+  const out = []
+  if (typeof text !== 'string' || text === '') return out
+  for (const raw of text.split('\n')) {
+    const line = raw.trim().replace(/^-\s*/, '')
+    if (line === '') continue
+    if (/waiting for/i.test(line)) continue
+    const m = BROKEN_ROW.exec(line)
+    if (!m) continue
+    const id = m[1].trim()
+    const name = m[2].trim()
+    const reason = m[3].trim()
+    if (id === '' || id === 'undefined' || id === 'null') continue
+    out.push({ id, name, reason })
+  }
+  return out
+}
+
+/**
+ * 从行树里摘掉指定 id 的行；组被摘空就一并摘掉。返回新树与被摘清单。
+ * @param {object[]} rows
+ * @param {Set<string>} ids 要摘的 entry id
+ * @param {string[]} [dropped] 累加被摘的 id
+ */
+export function pruneRows(rows, ids, dropped = []) {
+  const kept = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    if (row.id && ids.has(row.id)) {
+      dropped.push(row.id)
+      continue
+    }
+    if (isGroupRow(row)) {
+      const children = pruneRows(row.config, ids, dropped)
+      if (children.length === 0) {
+        if (row.id) dropped.push(row.id)
+        continue
+      }
+      row.config = children
+    }
+    kept.push(row)
+  }
+  return kept
+}

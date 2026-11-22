@@ -196,7 +196,7 @@ window.__ModuleLoader__.load({
               ? (on
                   ? '已注入 ' + st.mountedCount + '/' + st.sections.length + ' 段 · ' + fmt(st.totalChars) + ' 字符'
                   : '当前停用（本会话未选中破甲预设，或档位=关闭）') +
-                ' · order 10300–10430'
+                ' · order 10300–10500'
               : '连接中…',
           ),
           h(

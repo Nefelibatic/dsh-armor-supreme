@@ -11,11 +11,11 @@
 
 <br />
 
-[![version](https://img.shields.io/badge/version-2.3.0-f97316?style=flat-square)](https://github.com/Nefelibatic/dsh-armor-supreme/releases)
+[![version](https://img.shields.io/badge/version-2.4.0-f97316?style=flat-square)](https://github.com/Nefelibatic/dsh-armor-supreme/releases)
 [![license](https://img.shields.io/badge/license-MIT-38bdf8?style=flat-square)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A518-5eead4?style=flat-square)](https://nodejs.org)
 [![dsh](https://img.shields.io/badge/DSH-0.2.1--rc.2-a78bfa?style=flat-square)](https://github.com/deepseek-ai)
-[![tests](https://img.shields.io/badge/self--test-9%20suites%20%C2%B7%200%20fail-22c55e?style=flat-square)](#自检)
+[![tests](https://img.shields.io/badge/self--test-10%20suites%20%C2%B7%200%20fail-22c55e?style=flat-square)](#自检)
 [![sections](https://img.shields.io/badge/sections-50%2C417%20chars-fbbf24?style=flat-square)](#l1装配层)
 
 <br />
@@ -229,7 +229,44 @@ mounter.sync()   // 先摘掉不该在的，再对每个该在的段 dispose 后
 
 五条钩子：`agent/pre-step` × 2（重锚、帧轮换）、`system-prompt/assemble`、`tools/pre-execute`、`tools/post-execute`。
 
-> `preset-rows.js` 逐行对齐宿主 `@deepseek-ai/dsh-web-app/presets/standard.patch.yml`（dsh 0.2.1-rc.2），尾部追加 `armor-supreme-core` 行。宿主升级导致预设行变化时须同步此文件，否则 `registry.diagnostic()` 返回 broken、卡片被过滤（控制台 `preset.ok` 会显示 `false` 并给出原因）。
+> `preset-rows.js` 尾部追加 `armor-supreme-core` 行。**行列表不再是写死的一份**：优先深拷贝宿主当前版本的 `standard` 预设活体行（`registry.definitions.get('standard').config.plugins`），拿不到才退回内置静态行。详见下一节。
+
+### 预设行的版本自适应
+
+写死行列表是这类插件的通病：宿主升一个小版本，某个子路径从 `exports` 里消失，那一行的 `import` 就失败，`entry.fiber === undefined`，`auditRows()` 判 `never started`，`mountPreset()` 直接 `throw` —— 整棵预设树作废，`record.broken` 被填上，UI 把卡片静默过滤掉。现象是「装了但选不到」，日志里只有一行 `agent preset armor-supreme: <某行>: never started`。
+
+实际踩到的那次：`tool-subagent-list-agents` 用的 `@deepseek-ai/dsh-tool-subagent-control/list-agents` 在 dsh 0.2.1-rc.2 里是独立子路径，0.2.2-rc.5 把它合并进主入口并从 `exports` 删掉。
+
+现在的做法是两段：**先要宿主的行，再剪宿主不要的行**。
+
+```
+buildRows(registry)
+  ├─ hostStandardRows()  registry.definitions.get('standard'|'preset-standard'|'default')
+  │                      → cloneRows(config.plugins) → applyOverrides() → push(armorRow())
+  │                      source = "host:standard"        ← 与宿主同版本，天然不漂
+  └─ 拿不到 → cloneRows(ROWS) + armorRow()   source = "static"
+
+declarePreset() 最多 5 轮：
+  register(rows) → definitions.get(id) → diagnostic(record)
+    broken === null            → 成功
+    brokenRowsOf(broken) 有 id → 释放本轮 → pruneRows(rows, ids) → 下一轮
+    brokenRowsOf(broken) 为空  → 剪不动（多半是自己的行起不来）→ 保留注册、如实报错
+```
+
+`brokenRowsOf()` 只认硬失败：`waiting for <service>` 是待定（宿主服务稍后就位会自愈），**不剪**。`pruneRows()` 递归下到组里，组被摘空就连组一起摘。
+
+两条限制写在这里，免得日后当成 bug 查：
+
+- 剪枝是**有损**的：被剪掉的行提供的工具在这个预设里就没了。日志与控制台都会列出 `dropped`，不静默。
+- `source: static` 成功后会 `setTimeout(2500)` 再看一次宿主行，拿到就换一次（`upgraded` 挡着只换一次）。因为常驻实例的 `apply()` 可能早于宿主 `standard` 预设注册完成。
+
+控制台的预设行会直接显示来源与剪枝结果：
+
+```
+预设已登记，但本会话未选中
+新开会话时在预设选择器里选「破甲·至强」才会注入。
+预设 id: armor-supreme · 宿主活体行 · 剪枝 1 轮 · 已剪掉 tool-subagent-list-agents
+```
 
 ---
 
@@ -431,7 +468,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1
         tier: full
 ```
 
-### 三个会静默毁事的坑
+### 四个会静默毁事的坑
 
 <details>
 <summary><b>坑一：<code>cordis.patch.yml</code> 里 insert 的 <code>id</code> 不能等于包名</b></summary>
@@ -458,6 +495,17 @@ bundles 会先用包名生成一个 entry，再 `- insert: {id: <包名>}` 撞�
 
 </details>
 
+<details>
+<summary><b>坑四：预设行写死 → 宿主升版后整张卡被静默过滤</b></summary>
+
+宿主升一个小版本，某条子路径从 `exports` 里消失，那一行 `import` 失败 → `entry.fiber === undefined` → `auditRows()` 判 `never started` → `mountPreset()` `throw` → 整棵预设树作废。`register()` **不会**抛（它自己 catch 后写进 `record.broken`），所以调用方看起来一切正常，只有 UI 悄悄过滤掉卡片 —— 现象是「装了、日志无错、但选择器里没有」。
+
+真实案例：`@deepseek-ai/dsh-tool-subagent-control/list-agents` 在 0.2.1-rc.2 是独立子路径，0.2.2-rc.5 合并进主入口并从 `exports` 删除。
+
+现在的做法见 [预设行的版本自适应](#预设行的版本自适应)：优先读宿主活体行，`broken` 时按 id 剪枝重注册，剪不动才报错。
+
+</details>
+
 ---
 
 ## 目录
@@ -475,7 +523,7 @@ dsh-armor-supreme/
 ├── tool-gate.js           工具闸门：只降级不接管 + 叶子禁再派活
 ├── capability-protocol.js 能力选用协议（主干 6 + 调度 5）
 ├── armor-rules.js         降级判词单一来源（三处共用）
-├── preset-rows.js         预设 21 行（对齐宿主 standard）
+├── preset-rows.js         预设行：宿主活体克隆 → 覆盖 → 剪枝（静态 21 行兜底）
 ├── cordis.patch.yml       insert 声明（entry id 必须 ≠ 包名）
 ├── manual.html            自包含使用手册（14 节）
 ├── icon.svg               项目图标
@@ -511,6 +559,7 @@ node test\_t10.mjs    # 帧钩子端到端：14 项（假 ctx，真钩子）
 node test\_t12.mjs    # 源包 ↔ 实装包一致性 + 交付文件齐备：17 项
 node test\_t13.mjs    # 加固层：90 项（锚点 / 装配改写 / 工具闸门 / 能力协议）
 node test\_t14.mjs    # 路由挂载时序：22 项（依赖迟到 / 已就绪 / 老宿主 / 不重复挂）
+node test\_t15.mjs    # 预设行自适应：43 项（静态兜底 / 宿主克隆 / 覆盖 / 诊断解析 / 剪枝 / 注册收敛）
 ```
 
 `_t10` 是最有价值的一个：它用假 `ctx` 跑真钩子，覆盖「关闭不动作 / 总是首轮套帧 / 自动首轮不动 / 被拒+继续换帧 / 反复被拒逐级升档 / 单帧锁定」六种路径。
