@@ -3,7 +3,7 @@
   "version": "2.2.0",
   "private": false,
   "type": "module",
-  "description": "Layered context assembly for DSH agents: ordered prompt sections, register lock, tail anchor, frame permutation, observable control plane",
+  "description": "分层上下文装配 · Layered context assembly for DSH agents: ordered prompt sections, register lock, tail anchor, frame permutation, observable control plane",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Nefelibatic/dsh-armor-supreme.git"

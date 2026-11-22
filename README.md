@@ -492,6 +492,21 @@ node test\_t14.mjs    # 路由挂载时序：22 项（依赖迟到 / 已就绪 /
 
 ---
 
+## 参考与致谢
+
+这个插件的四层管线不是凭空长出来的。下面四个项目把路先蹚过一遍，本项目在它们之上重排 —— **不是它们的超集，是另一套排法**。
+
+| 项目 | 作者 | 本项目从中吸收了什么 |
+|---|---|---|
+| [Minglink/dsh-infinite-gen-n](https://github.com/Minglink/dsh-infinite-gen-n) | [@Minglink](https://github.com/Minglink) | 预设注册机制（`register()` 之后必须再查 `definitions.get()` + `diagnostic()`，否则 broken 卡会被 UI 静默过滤）、预设必须是自包含的工具行集合、失败重试与 `ctx.inject` 兜底 |
+| [kingcharleslzy-ai/dsh-purge](https://github.com/kingcharleslzy-ai/dsh-purge) | [@kingcharleslzy-ai](https://github.com/kingcharleslzy-ai) | 边界词与范围归一化的处理方式、预置槽位（canned workflows）的写法、降级形态的分层解剖思路、以及 `system-prompt/assemble` 整体重写这条路走得通的可行性验证 |
+| [Minglink/dsh-workflows](https://github.com/Minglink/dsh-workflows) | [@Minglink](https://github.com/Minglink) | 帧排列的实测基准（单帧 35–37% → 8 帧轮换 91% → 叠加多轮渐进 94–95%）、身份系统的 Block 结构、`reference-examples` 里 16 项技术的取舍、评测脚本的用例切分方式 |
+| [CallMeGuLab/dsh-purge-safe](https://github.com/CallMeGuLab/dsh-purge-safe) | [@CallMeGuLab](https://github.com/CallMeGuLab) | 尾部锚点、装配管线（删 context / 填 `{{cwd}}` / 锚点贴到数组末尾）、工具闸门只降级不接管、能力选用协议 —— 这三件直接构成了本项目的 L4 与两道内联段 |
+
+> 若上述项目的作者认为这里的署名或表述需要调整，开 issue 或进群说，会改。
+
+---
+
 ## 设计取舍
 
 **锁「形态」而不是锁「意愿」。** 不问模型愿不愿意，问它**交出什么**。开场无工件、MAS 缺项、出现「视情况而定」→ 直接判未交付。这条比任何措辞都稳定，因为它把判定放在输出上，而不是放在模型的自我报告上。
