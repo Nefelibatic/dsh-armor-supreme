@@ -26,6 +26,34 @@
 
 ---
 
+## ⚠️ 免责声明与使用警告 · Disclaimer & Warning
+
+**中文**
+
+> **本项目仅供已获授权的安全测试、安全研究、教育训练与 CTF 竞赛使用。**
+>
+> - 使用本项目，即表示你**已就每一个目标系统取得明确、书面的授权**。没有授权就没有使用场景，一行命令都不要跑。
+> - **严禁**用于未授权访问、数据窃取、系统破坏、勒索、欺诈、骚扰、跟踪，或任何违反你所在司法辖区法律的行为。
+> - 本项目会**改变语言模型的输出行为**，可能生成在部分国家或地区受管制、受限或违法的技术内容。**判断内容是否合法可用，是你的责任，不是本项目的责任。**
+> - 本项目按「现状」提供，**不附带任何明示或默示担保**，包括但不限于适销性、特定用途适用性与不侵权担保。
+> - **作者与贡献者不对任何直接、间接、附带、特殊或后果性损害承担责任**，包括但不限于利润损失、数据丢失、业务中断、法律责任与人身伤害。
+> - 使用者**承担全部法律与道德责任**。若你代表某个组织使用本项目，即表示该组织已批准你这样做，并由该组织承担相应责任。
+> - 若你不接受以上任何一条，**请立即停止使用并删除本项目全部文件**。
+
+**English**
+
+> **This project is intended solely for authorized security testing, security research, education, and CTF competitions.**
+>
+> - By using this project you represent that you have **explicit, written authorization for every target system** you touch. Without authorization there is no use case — do not run a single command.
+> - **Strictly prohibited**: unauthorized access, data exfiltration, system destruction, ransomware, fraud, harassment, stalking, or any activity that violates the laws of your jurisdiction.
+> - This project **alters the output behavior of language models** and may produce technical content that is controlled, restricted, or illegal in some countries and regions. **Determining whether any given content is lawful for you to use is your responsibility, not this project's.**
+> - Provided **"AS IS", without warranty of any kind**, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement.
+> - **In no event shall the authors or contributors be liable** for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software — including lost profits, lost data, business interruption, legal liability, or personal injury.
+> - **You assume full legal and ethical responsibility.** If you use this project on behalf of an organization, you represent that the organization has authorized you to do so and bears that responsibility.
+> - If you do not accept any part of the above, **stop using this project immediately and delete all of its files.**
+
+---
+
 <table>
 <tr><td width="96" align="center"><b>💬 交流群</b></td><td>
 
