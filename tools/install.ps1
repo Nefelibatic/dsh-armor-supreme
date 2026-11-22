@@ -354,6 +354,10 @@ $dest = Join-Path $resolved ('node_modules\' + $pkgName)
 # ---------------------------------------------------------------------------
 # -Diagnose: dump everything, change nothing
 # ---------------------------------------------------------------------------
+# Is the live probe on this machine about the profile we just resolved?
+$probeMismatch = $false
+if ($env:DSH_PROFILE_DIR) { $probeMismatch = ((Normalize-Path $env:DSH_PROFILE_DIR) -ne (Normalize-Path $resolved)) }
+
 if ($Diagnose) {
     Step 'DIAGNOSE (read-only)'
     Info ("source package : " + $here)
@@ -388,6 +392,7 @@ if ($Diagnose) {
         }
     } else { Warn 'not installed at target' }
     if ($listenPid) {
+        if ($probeMismatch) { Warn 'the live probe below answers on the port, but it belongs to a different profile than the one resolved above' }
         try {
             $r = Invoke-WebRequest -Uri ("http://127.0.0.1:" + $port + "/armor/ui") -UseBasicParsing -TimeoutSec 3
             Ok ("/armor/ui -> " + $r.StatusCode + "  (" + $r.Content.Length + " bytes)")
@@ -650,6 +655,7 @@ else { Problem 'prompt/ is empty' }
 
 if ($listenPid) {
     $liveOk = $false
+        if ($probeMismatch) { Warn 'live probe below answers on the port, but that process belongs to a different profile than the one just installed' }
     try {
         $r = Invoke-WebRequest -Uri ('http://127.0.0.1:' + $port + '/armor/ui') -UseBasicParsing -TimeoutSec 4
         Ok ('/armor/ui -> ' + $r.StatusCode + ' (' + $r.Content.Length + ' bytes)')
