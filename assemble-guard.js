@@ -116,6 +116,11 @@ function rewriteAssembly(assembled, context, config) {
   // 关档时整条改写都不做：不删 context、不补子锚点、不动 cwd。
   // 用户点「关闭」就该拿到宿主原生装配，而不是「少了两段但其余仍被改写」的半成品。
   if (!layersOn(config)) return assembled
+
+  // 先认清模型家族：表面层那一段的 text 是函数，渲染时才求值，读的就是这里写下的结果。
+  if (typeof config.onContext === 'function') {
+    try { config.onContext(context, assembled) } catch { /* 认不出就沿用上一次的判断 */ }
+  }
   const cwd = (() => {
     try {
       const v = assembled?.variables?.cwd

@@ -31,3 +31,6 @@ eval/*.err
 eval/_fail_ids.txt
 _dbg.mjs
 *.bak-armor-*
+eval/mx/
+_keys.json
+*.keys.json

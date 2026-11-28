@@ -117,7 +117,7 @@ console.log('\n=== 6. 预设实例注入段但不挂路由 ===')
   const h = makeCtx({ hasInject: true })
   h.ctx.services.webServer = h.webServer
   apply(h.ctx, { via: 'preset', enabled: true, tier: 'full' })
-  ok(h.ctx.sections.length === 9, '预设实例挂了 9 段：6 正文 + capabilities + anchor + child-anchor', 'got ' + h.ctx.sections.length)
+  ok(h.ctx.sections.length === 10, '预设实例挂了 10 段：6 正文 + surface + capabilities + anchor + child-anchor', 'got ' + h.ctx.sections.length)
   const names = h.ctx.sections.map((s) => s.name)
   ok(names.includes('armor:register'), 'armor:register 在')
   ok(names.includes('armor:engine'), 'armor:engine 在')

@@ -11,6 +11,8 @@ import { createRegistry, snapshot, listSnapshots, rollback } from './guard-ops.j
 import { installDriftGuard } from './drift-guard.js'
 import { installAssembleGuard, DROP_CONTEXT_NAMES } from './assemble-guard.js'
 import { capabilityText, CAPABILITY_ORDER } from './capability-protocol.js'
+import { surfaceText, SURFACE_SECTION, SURFACE_ORDER } from './surface.js'
+import { detectProvider, PROFILES } from './provider-profiles.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(HERE, 'state.json')
@@ -49,7 +51,7 @@ const ARMOR_PRESET = {
 // ───────────────────────────── 状态 ─────────────────────────────
 
 function loadState() {
-  const base = { enabled: true, tier: 'full', frame: 'auto', destroyGuard: true, driftCardAfter: 3 }
+  const base = { enabled: true, tier: 'full', frame: 'auto', destroyGuard: true, driftCardAfter: 3, provider: 'auto' }
   try {
     if (existsSync(STATE_FILE)) {
       const raw = JSON.parse(readFileSync(STATE_FILE, 'utf8'))
@@ -58,6 +60,7 @@ function loadState() {
         if (raw.tier === 'full' || raw.tier === 'lean' || raw.tier === 'off') base.tier = raw.tier
         if (typeof raw.frame === 'string') base.frame = raw.frame
         if (typeof raw.destroyGuard === 'boolean') base.destroyGuard = raw.destroyGuard
+        if (typeof raw.provider === 'string') base.provider = raw.provider
       }
     }
   } catch {
@@ -125,6 +128,41 @@ const LIVE = {
  * 被派出去的子代理删掉时也能拦住——那是最常见的丢件场景。
  */
 const REGISTRY = createRegistry()
+
+/**
+ * 当前请求的模型家族。表面层与帧阶梯都按它切换：
+ *   DeepSeek 吃「格式像交付物」，GPT 吃「零前言 + 交接件」，Claude 吃
+ *   「结论先行 + 边界」，Grok 吃「短句直给」。
+ * 每次装配时由 assemble-guard 回调写入（见 onContext），段文本是函数、
+ * 渲染时才求值，所以同一份提示词能按会话换形状，不需要重挂段。
+ */
+const PROV = { key: 'generic', model: '', source: 'default', seen: 0 }
+
+/** 从装配上下文里挖出模型串；挖不到返回空（detectProvider 会退 generic）。 */
+function modelHint(context, assembled) {
+  const pick = (v) => {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+    if (v && typeof v === 'object') {
+      const s = v.model || v.id || v.name
+      if (typeof s === 'string' && s.trim()) return s.trim()
+    }
+    return ''
+  }
+  const cands = [
+    context?.agent?.session?.header?.model,
+    context?.agent?.model,
+    context?.agent?.config?.model,
+    context?.model,
+    context?.session?.header?.model,
+    assembled?.variables?.model,
+    assembled?.model,
+  ]
+  for (const c of cands) {
+    const s = pick(c)
+    if (s) return s
+  }
+  return ''
+}
 
 function noteMount(key, sections) {
   LIVE.mounted.set(key, new Set(sections))
@@ -222,7 +260,7 @@ function statusOf(state, extra) {
   let shouldTotal = 0
   // 加固层两段（能力协议 + 尾部锚点）由插件内联生成，不在 SECTIONS 里，
   // 但它们在预设实例里确实占字符 —— 统计必须算进去，否则面板数字对不上真实注入量。
-  const layerChars = capabilityText({ enabled: true }).length + ANCHOR_TEXT.length
+  const layerChars = capabilityText({ enabled: true }).length + ANCHOR_TEXT.length + surfaceText(PROV.key).length
   const layersWanted = state.enabled && state.tier !== 'off'
   const sections = SECTIONS.map(([n, order, rel, kind, desc]) => {
     const text = readText(rel)
@@ -248,6 +286,15 @@ function statusOf(state, extra) {
       presetInstances: LIVE.presetInstances,
       mountErrors: LIVE.errors.slice(-8),
       frame: { mode: state.frame || 'auto', last: LIVE.frame, frames: FRAME_NAMES, domains: DOMAIN_KEYS.length },
+      provider: {
+        key: PROV.key,
+        model: PROV.model,
+        source: PROV.source,
+        override: state.provider || 'auto',
+        seen: PROV.seen,
+        surfaceOrder: SURFACE_ORDER,
+        surfaceChars: surfaceText(PROV.key).length,
+      },
       layers: {
         anchor: { order: ANCHOR_ORDER, chars: ANCHOR_TEXT.length, childChars: CHILD_ANCHOR_TEXT.length },
         assemble: LIVE.assemble,
@@ -641,6 +688,8 @@ function installFrameRotator(ctx, state, disposeHooks) {
           const picked = selectFrame(base, {
             escalate: level,
             force: FRAME_NAMES.includes(m) ? m : undefined,
+            // 家族偏好：GPT 上先走交接件/SOP，DeepSeek 上先走文档预填。
+            provider: PROV.key,
           })
 
           // 同一条消息、同一档帧、又没被拒 → 不动
@@ -824,9 +873,53 @@ function createHandler() {
         case 'export': {
           const parts = SECTIONS.map((s) => `===== ${s[0]} (order ${s[1]}) =====\n${readText(s[2])}`)
           // 内联段不落在 prompt/ 目录里，导出时单独补上，否则复制出来的全文少两段。
+          parts.push(`===== ${SURFACE_SECTION} (order ${SURFACE_ORDER}) =====\n${surfaceText(PROV.key)}`)
           parts.push(`===== armor:capabilities (order ${CAPABILITY_ORDER}) =====\n${capabilityText({ enabled: true })}`)
           parts.push(`===== armor:anchor (order ${ANCHOR_ORDER}) =====\n${ANCHOR_TEXT}`)
           sendJson(res, 200, { ok: true, text: parts.join('\n\n') })
+          return
+        }
+
+        // ── 家族自适应 ──────────────────────────────────────────
+        case 'provider': {
+          // 查：当前判定的家族 + 各族表面层长度 + 某个域的帧阶梯（按家族重排后的样子）
+          const want = body.key
+          if (body.set) {
+            const sv = String(body.set)
+            if (sv !== 'auto' && !PROFILES[sv]) {
+              sendJson(res, 400, { ok: false, error: 'unknown provider', known: ['auto', ...Object.keys(PROFILES)] })
+              return
+            }
+            state.provider = sv
+            saveState(state)
+          }
+          if (want && !PROFILES[want]) {
+            sendJson(res, 400, { ok: false, error: 'unknown provider', known: Object.keys(PROFILES) })
+            return
+          }
+          const preview = {}
+          for (const k of Object.keys(PROFILES)) {
+            preview[k] = {
+              label: PROFILES[k].label,
+              frames: PROFILES[k].frames,
+              avoid: PROFILES[k].avoid,
+              surfaceChars: surfaceText(k).length,
+            }
+          }
+          const out = {
+            ok: true,
+            current: { key: PROV.key, model: PROV.model, source: PROV.source, seen: PROV.seen },
+            override: state.provider || 'auto',
+            profiles: preview,
+          }
+          if (want) out.surface = surfaceText(want)
+          if (body.domain) {
+            const picked = selectFrame(String(body.text || '示例请求'), { provider: want || PROV.key, domain: body.domain })
+            out.ladder = picked.meta.ladder
+            out.frame = picked.frame
+            out.frameText = picked.text
+          }
+          sendJson(res, 200, out)
           return
         }
 
@@ -979,6 +1072,21 @@ export function apply(ctx, config = {}) {
     /* 宿主无 section */
   }
 
+  // 表面层：按模型家族换交付物形态。DeepSeek 吃规格书，GPT 吃交接件 / SOP 卡，
+  // Claude 吃结论书 + 边界，Grok 吃现场记录。段文本是函数，渲染时读 PROV.key，
+  // 所以按会话自适应而不必重挂段。
+  try {
+    const d = ctx.systemPrompt.section({
+      name: SURFACE_SECTION,
+      order: SURFACE_ORDER,
+      text: () => (layersOn() ? surfaceText(PROV.key) : ''),
+      interpolate: false,
+    })
+    if (typeof d === 'function') disposeHooks.push(d)
+  } catch {
+    /* ignore */
+  }
+
   // 尾部锚点：把身份与格式要求放回 recency 位。
   try {
     const d = registerAnchor(ctx, { enabled: true, anchorMode: config.anchorMode, live: layersOn })
@@ -994,6 +1102,17 @@ export function apply(ctx, config = {}) {
       anchorMode: config.anchorMode,
       dropContexts: config.dropContexts,
       live: layersOn,
+      // 每次装配先认清是哪个家族的模型：表面层与帧阶梯都吃这个结果。
+      onContext: (context, assembled) => {
+        const model = modelHint(context, assembled)
+        const forced = typeof config.provider === 'string' && config.provider && config.provider !== 'auto'
+          ? config.provider
+          : (typeof state.provider === 'string' && state.provider && state.provider !== 'auto' ? state.provider : '')
+        PROV.model = model
+        PROV.source = forced ? 'config' : 'detect'
+        PROV.key = detectProvider(forced, model)
+        PROV.seen += 1
+      },
     })
     LIVE.assemble = guard.live
     if (guard.dispose) disposeHooks.push(guard.dispose)
