@@ -20,3 +20,14 @@ answers/
 
 # 依赖
 node_modules/
+
+# 成果快照（本地数据保护，不进版本库）
+.armor-snapshots/
+
+# 回归/探针产物
+eval/answers*/
+eval/driftprobe/
+eval/*.err
+eval/_fail_ids.txt
+_dbg.mjs
+*.bak-armor-*

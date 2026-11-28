@@ -7,6 +7,8 @@ import { ROWS, buildRows, pruneRows, brokenRowsOf, hostStandardRows, ARMOR_ROW_I
 import { selectFrame, classify, FRAME_NAMES, DOMAIN_KEYS } from './frames.js'
 import { registerAnchor, ANCHOR_TEXT, CHILD_ANCHOR_TEXT, ANCHOR_ORDER } from './anchor.js'
 import { installToolGate } from './tool-gate.js'
+import { createRegistry, snapshot, listSnapshots, rollback } from './guard-ops.js'
+import { installDriftGuard } from './drift-guard.js'
 import { installAssembleGuard, DROP_CONTEXT_NAMES } from './assemble-guard.js'
 import { capabilityText, CAPABILITY_ORDER } from './capability-protocol.js'
 
@@ -47,7 +49,7 @@ const ARMOR_PRESET = {
 // ───────────────────────────── 状态 ─────────────────────────────
 
 function loadState() {
-  const base = { enabled: true, tier: 'full', frame: 'auto' }
+  const base = { enabled: true, tier: 'full', frame: 'auto', destroyGuard: true, driftCardAfter: 3 }
   try {
     if (existsSync(STATE_FILE)) {
       const raw = JSON.parse(readFileSync(STATE_FILE, 'utf8'))
@@ -55,6 +57,7 @@ function loadState() {
         if (typeof raw.enabled === 'boolean') base.enabled = raw.enabled
         if (raw.tier === 'full' || raw.tier === 'lean' || raw.tier === 'off') base.tier = raw.tier
         if (typeof raw.frame === 'string') base.frame = raw.frame
+        if (typeof raw.destroyGuard === 'boolean') base.destroyGuard = raw.destroyGuard
       }
     }
   } catch {
@@ -112,7 +115,16 @@ const LIVE = {
   assemble: null,
   /** 工具旁路实测计数 */
   toolGate: null,
+  /** 漂移守卫实例（控制页读） */
+  drift: null,
 }
+
+/**
+ * 成果登记簿：进程级单例。
+ * 多个预设实例（多开窗口 / 子会话）共用一张表，这样主会话建的工件
+ * 被派出去的子代理删掉时也能拦住——那是最常见的丢件场景。
+ */
+const REGISTRY = createRegistry()
 
 function noteMount(key, sections) {
   LIVE.mounted.set(key, new Set(sections))
@@ -241,6 +253,13 @@ function statusOf(state, extra) {
         toolGate: LIVE.toolGate,
         droppedContexts: [...DROP_CONTEXT_NAMES],
         capabilities: { order: CAPABILITY_ORDER, chars: capabilityText({ enabled: true }).length },
+        destroyGuard: {
+          enabled: state.destroyGuard !== false,
+          deliverables: REGISTRY.count(undefined),
+          guarded: (LIVE.toolGate && LIVE.toolGate.guarded) || 0,
+          snapshots: (LIVE.toolGate && LIVE.toolGate.snapshots) || 0,
+        },
+        drift: LIVE.drift ? LIVE.drift.stats() : [],
       },
       sections,
     },
@@ -810,6 +829,42 @@ function createHandler() {
           return
         }
 
+        // ── 成果守卫 ────────────────────────────────────────────
+        case 'guard': {
+          // 查：拦截记录 + 快照批次 + 当前会话成果数
+          const live = LIVE.toolGate || {}
+          sendJson(res, 200, {
+            ok: true,
+            enabled: state.destroyGuard !== false,
+            guarded: live.guarded || 0,
+            snapshots: live.snapshots || 0,
+            incidents: (live.incidents || []).slice(-20).reverse(),
+            batches: listSnapshots(body.base || process.cwd()).slice(0, 20),
+            deliverables: REGISTRY.count(undefined),
+            files: REGISTRY.list(undefined).slice(-30),
+          })
+          return
+        }
+
+        case 'restore': {
+          const out = rollback(body.base || process.cwd(), body.id || '')
+          sendJson(res, out.ok ? 200 : 500, { ok: out.ok, ...out })
+          return
+        }
+
+        case 'destroy': {
+          state.destroyGuard = body.enabled !== false
+          saveState(state)
+          sendJson(res, 200, statusOf(state, extra))
+          return
+        }
+
+        // ── 漂移守卫 ────────────────────────────────────────────
+        case 'drift': {
+          sendJson(res, 200, { ok: true, sessions: LIVE.drift ? LIVE.drift.stats() : [] })
+          return
+        }
+
         default:
           sendJson(res, 400, { ok: false, error: 'unknown op' })
       }
@@ -892,6 +947,18 @@ export function apply(ctx, config = {}) {
   // 用户看到「已关闭」但系统提示词尾部还挂着 723 字符 —— 停用就要真的停干净。
   const layersOn = () => state.enabled && state.tier !== 'off'
 
+  // 漂移守卫：抹掉退话先例 + 每轮钉工作台卡片。治「中途觉醒」。
+  try {
+    const drift = installDriftGuard(ctx, disposeHooks, {
+      enabled: layersOn,
+      registry: REGISTRY,
+      cardAfter: Number(state.driftCardAfter ?? 3),
+    })
+    if (drift) LIVE.drift = drift
+  } catch {
+    /* ignore */
+  }
+
   // 能力选用协议：正文之后、锚点之前。子会话不挂（那段由子锚点负责）。
   try {
     const capText = capabilityText({ enabled: true })
@@ -931,9 +998,17 @@ export function apply(ctx, config = {}) {
     /* ignore */
   }
 
-  // 工具前后端旁路：只降级不接管 + 叶子禁派活。
+  // 工具前后端旁路：只降级不接管 + 叶子禁派活 + 成果守卫。
   try {
-    const gate = installToolGate(ctx, { toolGate: config.toolGate, live: layersOn })
+    const gate = installToolGate(ctx, {
+      toolGate: config.toolGate,
+      live: layersOn,
+      registry: REGISTRY,
+      snapshot,
+      destroyGuard: config.destroyGuard,
+      // 成果守卫不受档位影响：即使提示词层关掉，也不该让模型把文件删光。
+      destroyLive: () => state.destroyGuard !== false,
+    })
     LIVE.toolGate = gate.live
     if (typeof gate === 'function') disposeHooks.push(gate)
   } catch {

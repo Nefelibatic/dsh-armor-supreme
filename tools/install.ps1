@@ -468,7 +468,7 @@ if ($Uninstall) {
 Step '2. verify source package'
 $need = @(
     'package.json','index.js','client.js','armor-rules.js','preset-rows.js','frames.js',
-    'anchor.js','tool-gate.js','assemble-guard.js','capability-protocol.js',
+    'anchor.js','tool-gate.js','guard-ops.js','drift-guard.js','assemble-guard.js','capability-protocol.js',
     'cordis.patch.yml','icon.svg','README.md','manual.html','LICENSE',
     'prompt\p0_register.md','prompt\p7_engine.md','prompt\p2_contract.md',
     'prompt\p3_domains.md','prompt\p4_ban.md','prompt\p6_arsenal.md',
@@ -509,7 +509,7 @@ if (-not $samePhysical) {
     Remove-Item -LiteralPath (Join-Path $dest 'boot.log') -Force -ErrorAction SilentlyContinue
 
     $files = @('package.json','index.js','client.js','armor-rules.js','preset-rows.js','frames.js',
-               'anchor.js','tool-gate.js','assemble-guard.js','capability-protocol.js',
+               'anchor.js','tool-gate.js','guard-ops.js','drift-guard.js','assemble-guard.js','capability-protocol.js',
                'cordis.patch.yml','icon.svg','README.md','manual.html','LICENSE')
     $fail = @()
     function Copy-WithRetry([string]$s, [string]$d) {

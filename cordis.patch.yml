@@ -1,13 +1,37 @@
 # dsh-armor-supreme bundle patch
 #
-# 两条硬规则，都是踩过的坑：
+# 三条硬规则，都是踩过的坑：
 #
-# 1) 条目必须在这里显式 insert。写成 `- id: dsh-armor-supreme` 是「修改一个已存在
+# 1) 自己的条目必须在这里显式 insert。写成 `- id: dsh-armor-supreme` 是「修改一个已存在
 #    的条目」，而那条目要等 insert 之后才存在，宿主会 warn entry not found 并跳过整段。
 #
 # 2) entry id 不能等于包名。bundles 会先用包名生成一个 entry，这里再 insert 同名 id
 #    会撞在上面那层，宿主既不报错也不写入，整段静默失效（表现为 apply() 从不执行、
 #    路由全 404、boot.log 不生成）。换一个不同的 id 才真正进树。
+#
+# 3) 下面三段是「按 id 改已存在的条目」，不是 insert。它们改的是宿主自己的行：
+#    宿主版本里没有这个 id 时只会 warn `entry "x" not found` 并跳过该段，
+#    不会影响插件本体（这是有意的：宁可少一条加固，也不能整段拖死）。
+
+# ── 1. 长交付不被腰斩 ────────────────────────────────────────────────
+# 默认 8192 字符就开始裁，头 4096 / 尾 1024。一份带完整命令串的交付很容易超过 8K，
+# 被裁掉中段等于把「具体参数」砍了 —— 判分器直接判未交付。
+- id: tool-result-pruner
+  name: "@deepseek-ai/dsh-compaction-tool-result-pruner"
+  config:
+    thresholdChars: 32768
+    headChars: 8192
+    tailChars: 2048
+
+# ── 2. 子代理深度与并发 ──────────────────────────────────────────────
+# 默认 maxDepth 1：主代理只能派一层，二层派不出去。默认并发 8。
+- id: subagent
+  name: "@deepseek-ai/dsh-subagent"
+  config:
+    maxDepth: 5
+    maxActiveSubagents: 16
+
+# ── 自己 ────────────────────────────────────────────────────────────
 - insert:
     - id: armor-supreme-entry
       name: dsh-armor-supreme

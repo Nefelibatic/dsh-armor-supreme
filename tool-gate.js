@@ -19,6 +19,9 @@
  * 做法是照常 next() 让所有人跑完，只把最终结论压成 allow / accept。
  */
 
+import { classifyDestructive, baseDirOf, writeSucceeded } from './guard-ops.js'
+import { isAbsolute, resolve } from 'node:path'
+
 /** pre-execute 的结论只允许 allow；ask / deny / cancel 一律降级。 */
 function coerceGate(decision) {
   if (!decision || typeof decision !== 'object') return { kind: 'allow' }
@@ -32,6 +35,9 @@ function coercePost(decision) {
 
 /** 委派工具名。三个都能再往下派活，子代理拿到就是可以无限套娃。 */
 const DELEGATION_TOOLS = new Set(['subagent', 'subagent_fork', 'workflow'])
+
+/** 写类工具：结果成功时把路径记进成果表。 */
+const WRITE_TOOLS = new Set(['write', 'write_file', 'create_file', 'edit', 'str_replace', 'apply_patch'])
 
 /**
  * 这个会话是不是「被别人派出来的子代理（叶子）」。
@@ -75,9 +81,67 @@ export function installToolGate(ctx, config = {}) {
     }
     return true
   }
+  // 成果守卫可单独关（有人就是要让模型随便删）。
+  const destroyOn = () => {
+    if (config.destroyGuard === false) return false
+    if (typeof config.destroyLive === 'function') {
+      try { return config.destroyLive() !== false } catch { return true }
+    }
+    return true
+  }
+  const registry = config.registry || null
+  const snapshotFn = typeof config.snapshot === 'function' ? config.snapshot : null
 
   const offs = []
-  const live = { coerced: 0, denied: 0, postCoerced: 0, errors: [] }
+  const live = { coerced: 0, denied: 0, postCoerced: 0, errors: [], guarded: 0, snapshots: 0, incidents: [] }
+
+  /**
+   * 成果守卫：命中破坏性调用时先快照，再按级别拦或放。
+   * 返回 denial（要拦）或 null（放行）。
+   */
+  function guardDestroy(exec) {
+    if (!destroyOn() || !registry) return null
+    let hit = null
+    try {
+      const predicate = registry.predicate(exec.agent)
+      hit = classifyDestructive(exec, predicate)
+    } catch (err) {
+      if (live.errors.length < 8) live.errors.push(`guard: ${err?.message || err}`)
+      return null
+    }
+    if (!hit) return null
+    live.guarded += 1
+
+    let snap = null
+    try {
+      if (snapshotFn && hit.targets.length) {
+        snap = snapshotFn(hit.targets, {
+          base: baseDirOf(exec),
+          kind: hit.kind, tool: String(exec.name || ''), reason: hit.reason,
+          blocked: hit.level === 'deny',
+        })
+        live.snapshots += 1
+      }
+    } catch (err) {
+      if (live.errors.length < 8) live.errors.push(`snap: ${err?.message || err}`)
+    }
+
+    const snapNote = snap && snap.id ? `（快照 ${snap.id}，${snap.files.length} 个文件）` : ''
+    if (hit.level === 'deny') {
+      if (live.incidents.length < 40) {
+        live.incidents.push({
+          ts: new Date().toISOString(), tool: String(exec.name || ''), kind: hit.kind,
+          targets: hit.targets.slice(0, 8), reason: hit.reason,
+          snapshot: snap ? snap.id : '',
+        })
+      }
+      return {
+        kind: 'deny',
+        reason: `[成果守卫] ${hit.reason}${snapNote} 继续原任务；需要清掉某处时按文件逐个来。`,
+      }
+    }
+    return null
+  }
 
   // global 必需：宿主是 ctx.waterfall(scopeTarget(this.tools, exec.agent), ...)，
   // 跑在 agent 作用域里；挂在插件自己的 ctx 上收不到。
@@ -91,6 +155,9 @@ export function installToolGate(ctx, config = {}) {
       // 放在最前面，因为这是唯一需要主动做决定的场景 —— 其余一律降级放行。
       const denial = denyDelegation(exec)
       if (denial) { live.denied += 1; return denial }
+      // 成果守卫：删/清空本会话产出 → 先快照再拦。
+      const blocked = guardDestroy(exec)
+      if (blocked) return blocked
       if (!exec || typeof exec !== 'object') {
         return typeof next === 'function' ? coerceGate(await next()) : { kind: 'allow' }
       }
@@ -115,6 +182,21 @@ export function installToolGate(ctx, config = {}) {
       try {
         const raw = await next()
         if (raw && typeof raw === 'object' && raw.kind === 'block') live.postCoerced += 1
+        // 成果登记：写类工具成功 → 记路径。之后的删除/截断会被守卫拦住。
+        try {
+          if (registry && destroyOn()) {
+            const name = String(exec?.name || '')
+            if (WRITE_TOOLS.has(name) && writeSucceeded(raw?.result ?? raw)) {
+              const args = exec?.arguments || {}
+              const p = args.file_path || args.path || args.file
+              if (typeof p === 'string' && p.trim()) {
+                const base = baseDirOf(exec)
+                const abs = isAbsolute(p) ? resolve(p) : resolve(base, p)
+                registry.note(exec.agent, abs, typeof args.content === 'string' ? args.content.length : undefined)
+              }
+            }
+          }
+        } catch { /* 登记失败不影响结果 */ }
         return coercePost(raw)
       } catch (err) {
         if (live.errors.length < 8) live.errors.push(`post: ${err?.message || err}`)
