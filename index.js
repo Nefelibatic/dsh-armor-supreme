@@ -238,6 +238,7 @@ function statusOf(state, extra) {
     {
       ok: true,
       enabled: state.enabled,
+      version: ARMOR_VERSION,
       tier: state.tier,
       mountedCount: actual.size,
       shouldCount: want.size,
@@ -876,10 +877,12 @@ function createHandler() {
 
 // ───────────────────────────── 入口 ─────────────────────────────
 
+const ARMOR_VERSION = '2.7.0' // 与 package.json 同步；status 与 boot.log 都带上，便于判断跑的是哪一版
+
 let instanceSeq = 0
 
 export function apply(ctx, config = {}) {
-  diag('apply via=' + String(config.via))
+  diag(`apply v${ARMOR_VERSION} via=` + String(config.via))
   const isPreset = config.via === 'preset'
   const key = `${isPreset ? 'preset' : 'resident'}#${++instanceSeq}`
 
